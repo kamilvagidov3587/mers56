@@ -1,0 +1,426 @@
+{% extends 'base.html' %}
+
+{% block title %}Панель администратора{% endblock %}
+
+{% block content %}
+<style>
+    /* Стили для улучшения видимости таблицы участников */
+    .table {
+        background-color: #ffffff;
+        color: #000000;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .table thead {
+        background-color: #007bff;
+        color: white;
+    }
+    .table thead th {
+        font-weight: 600;
+        padding: 12px 8px;
+    }
+    .table tbody tr:nth-child(even) {
+        background-color: #f0f8ff;
+    }
+    .table tbody tr:hover {
+        background-color: #e6f2ff;
+    }
+    .table td {
+        padding: 10px 8px;
+        vertical-align: middle;
+    }
+    /* Другие стили для админки */
+    .admin-container {
+        background-color: #f8f9fa;
+        border-radius: 15px;
+        padding: 25px;
+        color: #000000;
+    }
+    .card {
+        background-color: #ffffff;
+        color: #000000;
+    }
+    .card-header {
+        background-color: #007bff;
+        color: white;
+        font-weight: 600;
+    }
+    h2, h3 {
+        color: #007bff;
+    }
+    h3:after {
+        display: none;
+    }
+    .form-control {
+        background-color: #ffffff;
+        color: #000000;
+        border: 1px solid #ced4da;
+    }
+    .form-control:focus {
+        background-color: #ffffff;
+        color: #000000;
+    }
+</style>
+
+<div class="admin-container">
+    <h2 class="mb-4">Панель администратора</h2>
+    
+    <div class="mt-4">
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        Управление участниками
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <p class="mb-0"><strong>Всего участников:</strong> <span id="total-participants-count">{% if pagination %}{{ pagination.total_participants }}{% else %}{{ participants|length }}{% endif %}</span></p>
+                            </div>
+                            <div>
+                                <a href="{{ url_for('admin_participants') }}" class="btn btn-primary">
+                                    <i class="fas fa-users me-2"></i>Перейти к списку участников
+                                </a>
+                                <a href="{{ url_for('export_to_excel') }}" class="btn btn-success ms-2">
+                                    <i class="fas fa-file-excel me-2"></i>Экспорт в Excel
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Форма изменения ссылки WhatsApp -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <i class="fab fa-whatsapp me-2"></i>Настройка ссылки WhatsApp
+                    </div>
+                    <div class="card-body">
+                        <form id="whatsappLinkForm">
+                            <div class="mb-3">
+                                <label for="whatsapp_link" class="form-label">Ссылка для перехода в сообщество WhatsApp:</label>
+                                <input type="url" class="form-control" id="whatsapp_link" name="whatsapp_link" 
+                                       value="{{ settings.whatsapp_link }}" required>
+                                <div class="form-text">Введите полную ссылку в формате https://chat.whatsapp.com/...</div>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Сохранить</button>
+                            <div id="whatsappLinkStatus" class="mt-2"></div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Настройки резервного копирования -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Настройки резервного копирования</h5>
+                        <button type="button" class="btn btn-primary btn-sm" id="createBackupNow">
+                            <i class="fas fa-cloud-upload-alt me-1"></i>Создать копию сейчас
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="backupSettingsStatus"></div>
+                        
+                        <!-- Статус резервного копирования в реальном времени -->
+                        <div class="card mb-3 border-info">
+                            <div class="card-body py-2">
+                                <div class="row align-items-center">
+                                    <div class="col-md-6">
+                                        <div class="d-flex align-items-center">
+                                            <span class="me-2"><strong>Статус:</strong></span>
+                                            <div id="realTimeStatus">
+                                                <span class="{% if settings.backup_settings.enabled %}text-success{% else %}text-danger{% endif %}">
+                                                    {% if settings.backup_settings.enabled %}Активно{% else %}Отключено{% endif %}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <small><strong>Последнее:</strong> <span id="lastBackupTime">{{ settings.backup_settings.last_backup if settings.backup_settings.last_backup else 'Нет данных' }}</span></small>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <small><strong>Следующее:</strong> <span id="nextBackupTime">{{ next_backup_time if next_backup_time else 'Не запланировано' }}</span></small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <form id="backupSettingsForm" method="post" action="/update-backup-settings">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" id="backup_enabled" name="backup_enabled" {% if settings.backup_settings.enabled %}checked{% endif %}>
+                                <label class="form-check-label" for="backup_enabled">Включить автоматическое резервное копирование</label>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="yandex_token" class="form-label">Токен Яндекс.Диска</label>
+                                <input type="text" class="form-control" id="yandex_token" name="yandex_token" value="{{ settings.backup_settings.yandex_token if settings.backup_settings.yandex_token else '' }}">
+                                <div class="form-text">Получить можно <a href="https://yandex.ru/dev/disk/poligon/" target="_blank">здесь</a></div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="backup_interval" class="form-label">Периодичность резервного копирования</label>
+                                <select class="form-select" id="backup_interval" name="backup_interval">
+                                    <option value="daily" {% if settings.backup_settings.interval == 'daily' %}selected{% endif %}>Ежедневно (в 03:00)</option>
+                                    <option value="hourly" {% if settings.backup_settings.interval == 'hourly' %}selected{% endif %}>Каждый час</option>
+                                    <option value="custom" {% if settings.backup_settings.interval == 'custom' %}selected{% endif %}>Пользовательский интервал</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Быстрые кнопки для выбора интервала -->
+                            <div class="mb-3">
+                                <label class="form-label">Быстрый выбор интервала:</label>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button type="button" class="btn btn-outline-primary btn-sm quick-interval" data-value="30" data-unit="seconds">30 сек</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm quick-interval" data-value="1" data-unit="minutes">1 мин</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm quick-interval" data-value="5" data-unit="minutes">5 мин</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm quick-interval" data-value="15" data-unit="minutes">15 мин</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm quick-interval" data-value="30" data-unit="minutes">30 мин</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm quick-interval" data-value="1" data-unit="hours">1 час</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm quick-interval" data-value="6" data-unit="hours">6 часов</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm quick-interval" data-value="12" data-unit="hours">12 часов</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm quick-interval" data-value="24" data-unit="hours">1 день</button>
+                                </div>
+                            </div>
+                            
+                            <div id="custom_interval_settings" class="mb-3 p-3 bg-light rounded {% if settings.backup_settings.interval != 'custom' %}d-none{% endif %}">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="custom_value" class="form-label">Значение</label>
+                                        <input type="number" class="form-control" id="custom_value" name="custom_value" min="1" value="{{ settings.backup_settings.custom_value if settings.backup_settings.custom_value else '60' }}">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="custom_unit" class="form-label">Единица измерения</label>
+                                        <select class="form-select" id="custom_unit" name="custom_unit">
+                                            <option value="seconds" {% if settings.backup_settings.custom_unit == 'seconds' %}selected{% endif %}>Секунды</option>
+                                            <option value="minutes" {% if settings.backup_settings.custom_unit == 'minutes' %}selected{% endif %}>Минуты</option>
+                                            <option value="hours" {% if settings.backup_settings.custom_unit == 'hours' %}selected{% endif %}>Часы</option>
+                                            <option value="days" {% if settings.backup_settings.custom_unit == 'days' %}selected{% endif %}>Дни</option>
+                                            <option value="weeks" {% if settings.backup_settings.custom_unit == 'weeks' %}selected{% endif %}>Недели</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between">
+                                <button type="submit" class="btn btn-success">
+                                    <i class="fas fa-save me-1"></i>Сохранить настройки
+                                </button>
+                                <button type="button" id="applyNow" class="btn btn-primary">
+                                    <i class="fas fa-bolt me-1"></i>Применить сейчас
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Восстановление позиции прокрутки при загрузке страницы
+        if (localStorage.getItem('adminScrollPosition')) {
+            window.scrollTo(0, parseInt(localStorage.getItem('adminScrollPosition')));
+        }
+
+        // Переменная для контроля автообновления
+        let autoRefreshEnabled = true;
+        
+        // Функция для проверки и обновления данных
+        function checkForUpdates() {
+            // Если автообновление отключено, выходим из функции
+            if (!autoRefreshEnabled) return;
+            
+            fetch('/check-data-updates')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.has_updates) {
+                        // Обновляем счетчик участников
+                        const totalParticipantsEl = document.getElementById('total-participants-count');
+                        if (totalParticipantsEl) {
+                            totalParticipantsEl.textContent = data.total_participants;
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка при проверке обновлений:', error);
+                });
+        }
+        
+        // Форма для изменения ссылки WhatsApp
+        const whatsappLinkForm = document.getElementById('whatsappLinkForm');
+        const whatsappLinkStatus = document.getElementById('whatsappLinkStatus');
+        
+        if (whatsappLinkForm) {
+            whatsappLinkForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const formData = new FormData(this);
+                
+                // Отображаем индикатор загрузки
+                whatsappLinkStatus.innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="fas fa-spinner fa-spin me-2"></i>Сохранение...
+                    </div>
+                `;
+                
+                // Отправляем запрос на сервер
+                fetch('/update-whatsapp-link', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        whatsappLinkStatus.innerHTML = `
+                            <div class="alert alert-success">
+                                <i class="fas fa-check-circle me-2"></i>${data.message}
+                            </div>
+                        `;
+                        
+                        // Скрываем сообщение через 3 секунды
+                        setTimeout(() => {
+                            whatsappLinkStatus.innerHTML = '';
+                        }, 3000);
+                    } else {
+                        whatsappLinkStatus.innerHTML = `
+                            <div class="alert alert-danger">
+                                <i class="fas fa-exclamation-circle me-2"></i>${data.message}
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    whatsappLinkStatus.innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle me-2"></i>Произошла ошибка при сохранении ссылки
+                        </div>
+                    `;
+                    console.error('Ошибка:', error);
+                });
+            });
+        }
+        
+        // Форма для настроек резервного копирования
+        const backupSettingsForm = document.getElementById('backupSettingsForm');
+        const backupSettingsStatus = document.getElementById('backupSettingsStatus');
+        const createBackupNowBtn = document.getElementById('createBackupNow');
+        const applyNowBtn = document.getElementById('applyNow');
+        const backupIntervalSelect = document.getElementById('backup_interval');
+        const customIntervalSettings = document.getElementById('custom_interval_settings');
+        const customValueInput = document.getElementById('custom_value');
+        const customUnitSelect = document.getElementById('custom_unit');
+        
+        // Обработчики для быстрых кнопок выбора интервала
+        document.querySelectorAll('.quick-interval').forEach(button => {
+            button.addEventListener('click', function() {
+                // Получаем значение и единицу измерения из атрибутов кнопки
+                const value = this.getAttribute('data-value');
+                const unit = this.getAttribute('data-unit');
+                
+                // Устанавливаем выбранные значения в форму
+                backupIntervalSelect.value = 'custom';
+                customValueInput.value = value;
+                customUnitSelect.value = unit;
+                
+                // Показываем настройки произвольного интервала
+                customIntervalSettings.classList.remove('d-none');
+            });
+        });
+        
+        // Переключение видимости настроек произвольного интервала
+        if (backupIntervalSelect) {
+            backupIntervalSelect.addEventListener('change', function() {
+                if (this.value === 'custom') {
+                    customIntervalSettings.classList.remove('d-none');
+                } else {
+                    customIntervalSettings.classList.add('d-none');
+                }
+            });
+        }
+        
+        // Кнопка для создания резервной копии вручную
+        if (createBackupNowBtn) {
+            createBackupNowBtn.addEventListener('click', function() {
+                // Создаем индикатор загрузки
+                backupSettingsStatus.innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="fas fa-spinner fa-spin me-2"></i>Создание резервной копии...
+                    </div>
+                `;
+                
+                // Отправляем запрос на создание резервной копии
+                fetch('/create-backup', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        backupSettingsStatus.innerHTML = `
+                            <div class="alert alert-success">
+                                <i class="fas fa-check-circle me-2"></i>${data.message}
+                            </div>
+                        `;
+                        
+                        // Обновляем время последнего резервного копирования
+                        const now = new Date();
+                        const formattedDate = now.toISOString().replace('T', ' ').substring(0, 19);
+                        document.getElementById('lastBackupTime').textContent = formattedDate;
+                        
+                        // Обновляем время следующего резервного копирования
+                        const backupInterval = document.getElementById('backup_interval').value;
+                        if (backupInterval === 'daily') {
+                            // Следующее резервное копирование в 03:00 следующего дня
+                            document.getElementById('nextBackupTime').innerHTML = 'Завтра в 03:00';
+                        } else if (backupInterval === 'hourly') {
+                            // Следующее резервное копирование через час
+                            document.getElementById('nextBackupTime').innerHTML = 'Через 1 час';
+                        } else {
+                            // Для произвольного интервала обновляем в зависимости от настроек
+                            document.getElementById('nextBackupTime').innerHTML = 'В начале следующего часа';
+                        }
+                    } else {
+                        backupSettingsStatus.innerHTML = `
+                            <div class="alert alert-danger">
+                                <i class="fas fa-exclamation-circle me-2"></i>${data.message || 'Произошла ошибка при создании резервной копии'}
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    backupSettingsStatus.innerHTML = `
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-circle me-2"></i>Произошла ошибка при создании резервной копии
+                        </div>
+                    `;
+                    console.error('Ошибка:', error);
+                });
+            });
+        }
+        
+        // Запускаем проверку обновлений каждые 30 секунд
+        setInterval(checkForUpdates, 30000);
+        
+        // Запускаем первую проверку сразу
+        checkForUpdates();
+        
+        // При прокрутке страницы сохраняем позицию
+        window.addEventListener('scroll', function() {
+            localStorage.setItem('adminScrollPosition', window.scrollY);
+        });
+    });
+</script>
+{% endblock %} 
